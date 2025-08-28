@@ -23,7 +23,7 @@ let userName = null;
 
 const genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({
-  model: "gemini-2.5-flash"
+  model: "gemini-1.5-flash"
 });
 
 // --- NEW FUNCTION TO START THE CHAT ---
