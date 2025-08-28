@@ -42,7 +42,8 @@ const startServer = () => {
   });
 };
 
-if (process.argv[1] === new URL(import.meta.url).pathname) {
+// Only start server if running locally (not in Vercel serverless environment)
+if (process.argv[1] === new URL(import.meta.url).pathname && !process.env.VERCEL) {
   startServer();
 }
 

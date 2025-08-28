@@ -9,7 +9,7 @@ const parseEnv = () => {
     API_PREFIX: process.env.API_PREFIX || '/api/v1',
     JWT_SECRET: process.env.JWT_SECRET || 'your-super-secret-jwt-key-that-is-at-least-32-characters-long',
     JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
-    ALLOWED_ORIGINS: (process.env.ALLOWED_ORIGINS || 'http://localhost:3000').split(','),
+    ALLOWED_ORIGINS: (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:3001').split(','),
     RATE_LIMIT_WINDOW_MS: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 900000,
     RATE_LIMIT_MAX_REQUESTS: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
     LOG_LEVEL: process.env.LOG_LEVEL || 'info',
