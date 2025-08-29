@@ -1,81 +1,92 @@
 // ../src/controllers/astro.js
 
-import fs from "fs";
-import path from "path";
 import { createAstrologyPrompt } from "../services/astrologyPrompt.js";
 import { astrologyPersona } from "../services/astrologyPersonas.js";
 import { config } from "../config/environment.js";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
+import vedicAstrology from 'vedic-astrology'; // <--- CORRECT
+const { VedicAstrology } = vedicAstrology;     // <--- CORRECTuser-selected library
+import axios from 'axios';
 
-import { fileURLToPath } from 'url';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// --- INITIALIZATION & VALIDATION ---
 
-const chatSamplesPath = path.join(__dirname, "../data/astrologyChatSample.json");
-const chatSamples = JSON.parse(fs.readFileSync(chatSamplesPath, "utf-8"));
+// Check for essential API keys at startup. The app will crash if they are missing.
+if (!config.GEMINI_API_KEY) {
+  throw new Error("FATAL ERROR: GEMINI_API_KEY is not defined in environment variables.");
+}
+if (!config.OPENWEATHER_API_KEY) {
+  throw new Error("FATAL ERROR: OPENWEATHER_API_KEY is not defined in environment variables.");
+}
 
-const selectedPersona = astrologyPersona;
-
-// IMPORTANT: This now starts empty for each new session.
-// In a real production app, you'd manage this per-user (e.g., using a session ID).
-let conversation = []; 
-let userName = null;
+// In-memory session storage.
+// NOTE: For a production application that needs to scale or persist data
+// across server restarts, this should be replaced with a database like Redis or a persistent DB.
+let sessions = {};
 
 const genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({
-  model: "gemini-2.5-flash"
-});
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
-// --- NEW FUNCTION TO START THE CHAT ---
-export const startConversation = (req, res) => {
-  // Reset state for a new conversation
-  conversation = [];
-  userName = null;
-  // Send the initial greeting from the persona file
-  res.status(200).json({ message: astrologyPersona.initialGreeting });
+// --- HELPER FUNCTIONS ---
+
+const getCoordinates = async (locationString) => {
+  try {
+    const encodedLocation = encodeURIComponent(locationString);
+    const url = `http://api.openweathermap.org/geo/1.0/direct?q=${encodedLocation}&limit=1&appid=${config.OPENWEATHER_API_KEY}`;
+    const response = await axios.get(url);
+    if (response.data && response.data.length > 0) {
+      const { lat, lon } = response.data[0];
+      return { latitude: lat, longitude: lon };
+    } else {
+      throw new Error("Location not found.");
+    }
+  } catch (error) {
+    console.error("Geocoding API Error:", error.message);
+    throw new Error("Could not find coordinates for the specified location.");
+  }
 };
 
-
-// --- UPDATED CHAT FUNCTION ---
-export const connectDeepSeek = async (req, res) => {
-  if (!req.body || !req.body.message) {
-    return res.status(400).json({ message: "Payload is required" });
+const handleBirthDetailsSubmission = async (userSession, birthDetails) => {
+  // 1. Robust Input Validation
+  const { name, date, time, location } = birthDetails;
+  if (!name || !date || !time || !location) {
+    throw new Error("Incomplete birth details. All fields are required.");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error("Invalid date format. Please use YYYY-MM-DD.");
+  }
+  if (!/^\d{2}:\d{2}$/.test(time)) {
+    throw new Error("Invalid time format. Please use HH:mm.");
   }
 
-  const { message } = req.body;
+  console.log("Received birth details:", birthDetails);
+  const { latitude, longitude } = await getCoordinates(location);
 
-  // If this is the first message (the user's name)
-  if (!userName) {
-    userName = message;
-    conversation.push({ role: "user", content: message });
-    const welcomeMessage = `A pleasure to meet you, ${userName}. ✨ The cosmos is ready when you are. To truly understand your path, I'll need your birth date, time, and location. Feel free to share when you're ready.`;
-    conversation.push({ role: "assistant", content: welcomeMessage });
-    return res.status(200).json({ message: welcomeMessage });
-  }
+  const birthDate = new Date(`${date}T${time}:00`);
+  const birthTime = `${time}:00`;
+  const birthLocation = [latitude, longitude];
 
-  // Add the user's new message to the history
-  conversation.push({ role: "user", content: message });
+  const chart = new VedicAstrology(birthDate, birthTime, birthLocation);
+  
+  const sunSign = chart.getSunSign();
+  const moonSign = chart.getMoonSign();
+  const ascendantSign = chart.getAscendant();
 
-  const emotionKeywords = {
-    happy: "😊 The stars shine brighter when you're happy!",
-    sad: "😔 It's okay, even the moon has its phases. I'm here to listen.",
-    angry: "😡 I sense a fiery Mars energy. Let's channel it constructively.",
-    excited: "🤩 What a wonderful alignment of energy!",
-    confused: "🤔 The universe can be puzzling. Let's seek clarity together.",
+  userSession.userDetails = {
+    name,
+    birthDetails,
+    signs: { sun: sunSign, moon: moonSign, ascendant: ascendantSign },
   };
 
-  let detectedEmotion = "";
-  for (const [emotion, response] of Object.entries(emotionKeywords)) {
-    if (message?.toLowerCase().includes(emotion)) {
-      detectedEmotion = response;
-      break;
-    }
-  }
+  const analysisMessage = `Bahut badhiya, ${name}! Maine aapke cosmic details calculate kar liye hain. Vedic astrology ke hisaab se, aapki Surya Raashi (Sun Sign) ${sunSign} hai, Chandra Raashi (Moon Sign) ${moonSign}, aur aapka Lagna (Ascendant) ${ascendantSign} hai. Ab aapki kundli taiyaar hai. Aap kya jaanna chahenge?`;
 
-  const systemPrompt = createAstrologyPrompt(selectedPersona);
+  userSession.conversation.push({ role: "assistant", content: analysisMessage });
+  return analysisMessage;
+};
 
-  try {
-    const geminiHistory = conversation.slice(-100).map(turn => ({
+const handleGeneralChat = async (userSession, message) => {
+    const systemPrompt = createAstrologyPrompt(astrologyPersona, userSession.userDetails);
+
+    const geminiHistory = userSession.conversation.slice(-50).map(turn => ({
       role: turn.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: turn.content }],
     }));
@@ -91,37 +102,119 @@ export const connectDeepSeek = async (req, res) => {
       ],
     });
 
-    // We send only the last message, as the history is already in the chat session
     const result = await chat.sendMessage(message);
-    const response = result.response;
-    let aiResponse = response.text();
-
-    if (detectedEmotion) {
-      aiResponse = `${detectedEmotion} ${aiResponse}`;
-    }
-
-    conversation.push({ role: "assistant", content: aiResponse });
-    console.log(conversation);
-
-    res.status(200).json({ message: aiResponse });
-  } catch (err) {
-    console.error("Error calling Gemini API:", err);
+    const aiResponse = result.response.text();
     
-    // Better error handling for different types of errors
-    if (err.status === 400 && err.errorDetails?.some(detail => detail.reason === 'API_KEY_INVALID')) {
-      res.status(500).json({ 
-        message: "Configuration Error: Invalid API key. Please check your Gemini API key in the .env file." 
-      });
-    } else if (err.status === 500) {
-      res.status(500).json({ 
-        message: "Google AI service is temporarily unavailable. Please try again in a moment." 
-      });
-    } else if (err.message?.includes('model')) {
-      res.status(500).json({ 
-        message: "Model configuration error. Please check the model name." 
-      });
-    } else {
-      res.status(500).json({ message: "Internal Server Error" });
+    userSession.conversation.push({ role: "assistant", content: aiResponse });
+    console.log(`[${userSession.sessionId}] Conversation length:`, userSession.conversation.length);
+
+    return aiResponse;
+};
+
+// --- CONTROLLER EXPORTS ---
+
+export const startConversation = (req, res) => {
+  const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  sessions[sessionId] = {
+    sessionId,
+    conversation: [],
+    userDetails: { name: null, birthDetails: null, signs: null },
+  };
+  console.log(`New session created: ${sessionId}`);
+  res.status(200).json({ sessionId, message: astrologyPersona.initialGreeting });
+};
+
+// ../src/controllers/astro.js
+
+// ... (all your imports and setup code at the top remain the same)
+// ... (the startConversation function also remains the same)
+
+// --- REWRITTEN CHAT FUNCTION WITH CORRECTED LOGIC FLOW ---
+export const connectDeepSeek = async (req, res) => {
+  const { sessionId, message, birthDetails } = req.body;
+
+  if (!sessionId || !sessions[sessionId]) {
+    return res.status(400).json({ message: "Invalid or missing session ID. Please start a new conversation." });
+  }
+
+  const userSession = sessions[sessionId];
+  userSession.conversation.push({ role: "user", content: message });
+  
+  // --- REORDERED LOGIC ---
+
+  // 1. PRIORITIZE birthDetails submission. Check this first.
+  if (birthDetails && !userSession.userDetails.signs) {
+    try {
+      console.log("Received birth details:", birthDetails);
+      // Set the user's name from the structured details, not the message
+      userSession.userDetails.name = birthDetails.name; 
+      userName = birthDetails.name; // Also update the legacy variable for now
+      
+      const { latitude, longitude } = await getCoordinates(birthDetails.location);
+
+      const birthDate = new Date(`${birthDetails.date}T${birthDetails.time}:00`);
+      const birthTime = `${birthDetails.time}:00`;
+      const birthLocation = [latitude, longitude];
+
+      const chart = new VedicAstrology(birthDate, birthTime, birthLocation);
+      
+      const sunSign = chart.getSunSign();
+      const moonSign = chart.getMoonSign();
+      const ascendantSign = chart.getAscendant();
+
+      userSession.userDetails = {
+        name: birthDetails.name,
+        birthDetails,
+        signs: { sun: sunSign, moon: moonSign, ascendant: ascendantSign },
+      };
+
+      const analysisMessage = `Bahut badhiya, ${birthDetails.name}! Maine aapke cosmic details calculate kar liye hain. Vedic astrology ke hisaab se, aapki Surya Raashi (Sun Sign) ${sunSign} hai, Chandra Raashi (Moon Sign) ${moonSign}, aur aapka Lagna (Ascendant) ${ascendantSign} hai. Ab aapki kundli taiyaar hai. Aap kya jaanna chahenge?`;
+
+      userSession.conversation.push({ role: "assistant", content: analysisMessage });
+      return res.status(200).json({ message: analysisMessage });
+
+    } catch (error) {
+      console.error("Astrology/Geocoding error:", error.message);
+      const errorMessage = error.message.includes("Location not found")
+        ? `Maaf kijiye, mujhe "${birthDetails.location}" naam ki jagah nahi mil rahi. Kya aap spelling check kar sakte hain?`
+        : "Details calculate karte waqt kuch error aa gaya. Please check the format.";
+      return res.status(500).json({ message: errorMessage });
     }
+  }
+
+  // 2. Fallback to name capture if no details are sent AND the name isn't set yet.
+  if (!userSession.userDetails.name) {
+    userSession.userDetails.name = message;
+    userName = message; // Also update the legacy variable
+    const welcomeMessage = `A pleasure to meet you, ${message}. ✨ The cosmos is ready when you are. To truly understand your path, I'll need your birth date, time, and location. Feel free to share when you're ready.`;
+    userSession.conversation.push({ role: "assistant", content: welcomeMessage });
+    return res.status(200).json({ message: welcomeMessage });
+  }
+
+  // 3. Handle general chat if none of the above conditions are met.
+  try {
+    const systemPrompt = createAstrologyPrompt(selectedPersona, userSession.userDetails);
+    const geminiHistory = userSession.conversation.slice(-50).map(turn => ({
+      role: turn.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: turn.content }],
+    }));
+
+    const chat = model.startChat({
+      history: geminiHistory,
+      systemInstruction: { role: "system", parts: [{ text: systemPrompt }] },
+      safetySettings: [ /* Your safety settings here */ ],
+    });
+
+    const result = await chat.sendMessage(message);
+    const aiResponse = result.response.text();
+    
+    userSession.conversation.push({ role: "assistant", content: aiResponse });
+    console.log(`[${sessionId}] Conversation length:`, userSession.conversation.length);
+    
+    res.status(200).json({ message: aiResponse });
+
+  } catch (err) {
+    console.error(`[${sessionId}] Error calling Gemini API:`, err);
+    res.status(500).json({ message: "Internal Server Error" });
   }
 };

@@ -14,6 +14,7 @@ const parseEnv = () => {
     RATE_LIMIT_MAX_REQUESTS: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
     LOG_LEVEL: process.env.LOG_LEVEL || 'info',
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    OPENWEATHER_API_KEY: process.env.OPENWEATHER_API_KEY
   };
 
   // Validate required environment variables
