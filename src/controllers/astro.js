@@ -130,6 +130,9 @@ export const startConversation = (req, res) => {
 // ... (the startConversation function also remains the same)
 
 // --- REWRITTEN CHAT FUNCTION WITH CORRECTED LOGIC FLOW ---
+// ../src/controllers/astro.js
+
+// --- UPDATED CHAT FUNCTION WITH 'userName' BUG FIXED ---
 export const connectDeepSeek = async (req, res) => {
   const { sessionId, message, birthDetails } = req.body;
 
@@ -140,16 +143,13 @@ export const connectDeepSeek = async (req, res) => {
   const userSession = sessions[sessionId];
   userSession.conversation.push({ role: "user", content: message });
   
-  // --- REORDERED LOGIC ---
-
-  // 1. PRIORITIZE birthDetails submission. Check this first.
+  // 1. PRIORITIZE birthDetails submission
   if (birthDetails && !userSession.userDetails.signs) {
     try {
-      console.log("Received birth details:", birthDetails);
-      // Set the user's name from the structured details, not the message
+      // THE FIX: Set the name on the session object FIRST
       userSession.userDetails.name = birthDetails.name; 
-      userName = birthDetails.name; // Also update the legacy variable for now
-      
+
+      console.log("Received birth details:", birthDetails);
       const { latitude, longitude } = await getCoordinates(birthDetails.location);
 
       const birthDate = new Date(`${birthDetails.date}T${birthDetails.time}:00`);
@@ -162,13 +162,10 @@ export const connectDeepSeek = async (req, res) => {
       const moonSign = chart.getMoonSign();
       const ascendantSign = chart.getAscendant();
 
-      userSession.userDetails = {
-        name: birthDetails.name,
-        birthDetails,
-        signs: { sun: sunSign, moon: moonSign, ascendant: ascendantSign },
-      };
+      userSession.userDetails.signs = { sun: sunSign, moon: moonSign, ascendant: ascendantSign };
 
-      const analysisMessage = `Bahut badhiya, ${birthDetails.name}! Maine aapke cosmic details calculate kar liye hain. Vedic astrology ke hisaab se, aapki Surya Raashi (Sun Sign) ${sunSign} hai, Chandra Raashi (Moon Sign) ${moonSign}, aur aapka Lagna (Ascendant) ${ascendantSign} hai. Ab aapki kundli taiyaar hai. Aap kya jaanna chahenge?`;
+      // THE FIX: Use the name from the session object, not the old variable
+      const analysisMessage = `Bahut badhiya, ${userSession.userDetails.name}! Maine aapke cosmic details calculate kar liye hain. Vedic astrology ke hisaab se, aapki Surya Raashi (Sun Sign) ${sunSign} hai, Chandra Raashi (Moon Sign) ${moonSign}, aur aapka Lagna (Ascendant) ${ascendantSign} hai. Ab aapki kundli taiyaar hai. Aap kya jaanna chahenge?`;
 
       userSession.conversation.push({ role: "assistant", content: analysisMessage });
       return res.status(200).json({ message: analysisMessage });
@@ -184,14 +181,14 @@ export const connectDeepSeek = async (req, res) => {
 
   // 2. Fallback to name capture if no details are sent AND the name isn't set yet.
   if (!userSession.userDetails.name) {
+    // THE FIX: Set the name on the session object
     userSession.userDetails.name = message;
-    userName = message; // Also update the legacy variable
     const welcomeMessage = `A pleasure to meet you, ${message}. ✨ The cosmos is ready when you are. To truly understand your path, I'll need your birth date, time, and location. Feel free to share when you're ready.`;
     userSession.conversation.push({ role: "assistant", content: welcomeMessage });
     return res.status(200).json({ message: welcomeMessage });
   }
 
-  // 3. Handle general chat if none of the above conditions are met.
+  // 3. Handle general chat
   try {
     const systemPrompt = createAstrologyPrompt(selectedPersona, userSession.userDetails);
     const geminiHistory = userSession.conversation.slice(-50).map(turn => ({
