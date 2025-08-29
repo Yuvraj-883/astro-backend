@@ -13,8 +13,10 @@ const app = express();
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: config.ALLOWED_ORIGINS,
+  origin: true, // Allow all origins for now
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 // Logging middleware
