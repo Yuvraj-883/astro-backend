@@ -57,6 +57,57 @@ const getZodiacSign = (month, day) => {
   return "Capricorn"; // fallback
 };
 
+// Convert vedic astrology abbreviations to full sign names
+const convertVedicSignToFullName = (abbreviation) => {
+  const vedicToFull = {
+    'Ar': 'Aries',
+    'Ta': 'Taurus', 
+    'Ge': 'Gemini',
+    'Cn': 'Cancer',
+    'Le': 'Leo',
+    'Vi': 'Virgo',
+    'Li': 'Libra',
+    'Sc': 'Scorpio',
+    'Sg': 'Sagittarius',
+    'Cp': 'Capricorn',
+    'Aq': 'Aquarius',
+    'Pi': 'Pisces'
+  };
+  return vedicToFull[abbreviation] || abbreviation;
+};
+
+// Generate detailed birth chart summary for AI agent
+const generateChartSummary = (completeChart) => {
+  if (!completeChart) return "Birth chart data not available.";
+  
+  let summary = "COMPLETE BIRTH CHART ANALYSIS:\n\n";
+  
+  // Basic Signs
+  summary += `🌟 BASIC SIGNS:\n`;
+  summary += `• Sun Sign (Surya Rashi): ${completeChart.basicSigns.sunSign}\n`;
+  summary += `• Moon Sign (Chandra Rashi): ${completeChart.basicSigns.moonSign}\n`;
+  summary += `• Ascendant (Lagna): ${completeChart.basicSigns.ascendantSign}\n\n`;
+  
+  // All Planetary Positions
+  summary += `🪐 PLANETARY POSITIONS:\n`;
+  Object.entries(completeChart.planets).forEach(([code, planet]) => {
+    const retrograde = planet.isRetrograde ? " (R)" : "";
+    summary += `• ${planet.name}: ${planet.sign}${retrograde} - ${planet.nakshatra} nakshatra\n`;
+  });
+  
+  // House-wise Distribution
+  summary += `\n🏠 HOUSE-WISE PLANETARY DISTRIBUTION:\n`;
+  Object.entries(completeChart.houses).forEach(([house, houseData]) => {
+    if (houseData.planets.length > 0) {
+      const planetList = houseData.planets.map(p => 
+        `${p.name}${p.isRetrograde ? '(R)' : ''}`).join(', ');
+      summary += `• ${houseData.sign} (House ${houseData.houseNumber}): ${planetList}\n`;
+    }
+  });
+  
+  return summary;
+};
+
 const getCoordinates = async (locationString) => {
   try {
     const encodedLocation = encodeURIComponent(locationString);
@@ -176,39 +227,136 @@ export const connectDeepSeek = async (req, res) => {
       // Keep the original date string format for vedic astrology
       const birthDate = birthDetails.date; // Keep as string like "1990-08-15"
       const birthTime = `${birthDetails.time}:00`; // Convert "14:30" to "14:30:00" 
-      // Convert coordinates to proper number format that vedic astrology expects
-      const birthLocation = [parseFloat(latitude), parseFloat(longitude)];
+      
+      // Debug the coordinate types and values
+      console.log('Raw coordinates:', { latitude, longitude });
+      console.log('Coordinate types:', { latType: typeof latitude, lonType: typeof longitude });
+      
+      // Try different coordinate formats that vedic astrology might expect
+      const birthLocation = [Number(latitude), Number(longitude)];
       console.log('Birth parameters:', { birthDate, birthTime, birthLocation });
+      console.log('Final coordinate types:', { 
+        latType: typeof birthLocation[0], 
+        lonType: typeof birthLocation[1],
+        isLatNumber: !isNaN(birthLocation[0]),
+        isLonNumber: !isNaN(birthLocation[1])
+      });
       
       // Try to use vedic astrology package correctly
       let sunSign, moonSign, ascendantSign;
       try {
         console.log('Vedic astrology object:', vedicAstrology);
         
-        // Use the proper vedic astrology API
-        const chart = vedicAstrology.positioner.getBirthChart(birthDate, birthTime, birthLocation);
-        console.log('Vedic astrology chart:', chart);
+        // Use the proper vedic astrology API with timezone
+        // According to docs: getBirthChart(dateString, timeString, lat, lng, timezone)
+        const timezone = 5.5; // IST (Indian Standard Time) - we can make this dynamic later
         
-        // Check what methods are available on the chart object
+        let chart;
+        try {
+          chart = vedicAstrology.positioner.getBirthChart(
+            birthDate, 
+            birthTime, 
+            birthLocation[0], // latitude
+            birthLocation[1], // longitude  
+            timezone
+          );
+          console.log('Vedic astrology succeeded with timezone!');
+          console.log('Vedic astrology chart:', chart);
+        } catch (vedicError) {
+          console.log('Vedic astrology still failed:', vedicError.message);
+          throw vedicError;
+        }
+        
+        // Extract complete birth chart details
         if (chart && typeof chart === 'object') {
-          console.log('Chart methods:', Object.getOwnPropertyNames(chart));
-          console.log('Chart prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(chart)));
-          
-          // Try different ways to get the signs
-          if (typeof chart.getSunSign === 'function') {
-            sunSign = chart.getSunSign();
-          }
-          if (typeof chart.getMoonSign === 'function') {
-            moonSign = chart.getMoonSign();
-          }
-          if (typeof chart.getAscendant === 'function') {
-            ascendantSign = chart.getAscendant();
+          console.log('Chart structure:', Object.keys(chart));
+          if (chart.meta) {
+            console.log('Chart meta:', Object.keys(chart.meta));
           }
           
-          // If the above don't work, try accessing properties directly
-          if (!sunSign && chart.sun) sunSign = chart.sun.sign || chart.sun;
-          if (!moonSign && chart.moon) moonSign = chart.moon.sign || chart.moon;
-          if (!ascendantSign && chart.ascendant) ascendantSign = chart.ascendant.sign || chart.ascendant;
+          // Extract basic signs
+          if (chart.meta && chart.meta.Su && chart.meta.Su.rashi) {
+            sunSign = convertVedicSignToFullName(chart.meta.Su.rashi);
+            console.log('Sun sign from vedic chart:', sunSign);
+          }
+          
+          if (chart.meta && chart.meta.Mo && chart.meta.Mo.rashi) {
+            moonSign = convertVedicSignToFullName(chart.meta.Mo.rashi);
+            console.log('Moon sign from vedic chart:', moonSign);
+          }
+          
+          if (chart.meta && chart.meta.La && chart.meta.La.rashi) {
+            ascendantSign = convertVedicSignToFullName(chart.meta.La.rashi);
+            console.log('Ascendant from vedic chart:', ascendantSign);
+          }
+          
+          // COMPLETE PLANETARY DETAILS FOR AI AGENT
+          const planetNames = {
+            'Su': 'Sun (Surya)',
+            'Mo': 'Moon (Chandra)', 
+            'Me': 'Mercury (Budh)',
+            'Ve': 'Venus (Shukra)',
+            'Ma': 'Mars (Mangal)',
+            'Ju': 'Jupiter (Guru)',
+            'Sa': 'Saturn (Shani)',
+            'Ra': 'Rahu (North Node)',
+            'Ke': 'Ketu (South Node)',
+            'La': 'Lagna (Ascendant)'
+          };
+          
+          const completeChartData = {
+            basicSigns: { sunSign, moonSign, ascendantSign },
+            planets: {},
+            houses: {},
+            nakshatras: {},
+            planetaryAspects: []
+          };
+          
+          // Extract all planetary positions with full details
+          if (chart.meta) {
+            Object.keys(chart.meta).forEach(planetCode => {
+              const planet = chart.meta[planetCode];
+              if (planet && planet.rashi) {
+                completeChartData.planets[planetCode] = {
+                  name: planetNames[planetCode] || planetCode,
+                  sign: convertVedicSignToFullName(planet.rashi),
+                  signAbbr: planet.rashi,
+                  longitude: planet.longitude,
+                  isRetrograde: planet.isRetrograde,
+                  nakshatra: planet.nakshatra?.name || 'Unknown',
+                  nakshatraPada: planet.nakshatra?.pada || 0,
+                  house: null // Will be calculated from sign positions
+                };
+              }
+            });
+          }
+          
+          // Extract house-wise planetary distribution
+          const houses = ['aries', 'taurus', 'gemini', 'cancer', 'leo', 'virgo', 
+                         'libra', 'scorpio', 'sagittarius', 'capricorn', 'aquarius', 'pisces'];
+          
+          houses.forEach((house, index) => {
+            if (chart[house] && chart[house].signs) {
+              completeChartData.houses[house] = {
+                houseNumber: index + 1,
+                sign: house.charAt(0).toUpperCase() + house.slice(1),
+                planets: chart[house].signs.map(planet => ({
+                  code: planet.graha,
+                  name: planetNames[planet.graha] || planet.graha,
+                  isRetrograde: planet.isRetrograde
+                }))
+              };
+            }
+          });
+          
+          // Store complete chart data in session for AI agent access
+          userSession.userDetails.completeChart = completeChartData;
+          
+          console.log('Complete chart data stored for AI agent:', {
+            planetsCount: Object.keys(completeChartData.planets).length,
+            housesWithPlanets: Object.keys(completeChartData.houses).filter(h => 
+              completeChartData.houses[h].planets.length > 0).length
+          });
           
           console.log('Extracted signs from vedic chart:', { sunSign, moonSign, ascendantSign });
         }
@@ -267,6 +415,14 @@ export const connectDeepSeek = async (req, res) => {
   // 3. Handle general chat
   try {
     const systemPrompt = createAstrologyPrompt(selectedPersona, userSession.userDetails);
+    
+    // Add complete birth chart data to conversation context if available
+    let enhancedSystemPrompt = systemPrompt;
+    if (userSession.userDetails.completeChart) {
+      const chartSummary = generateChartSummary(userSession.userDetails.completeChart);
+      enhancedSystemPrompt += `\n\nDETAILED BIRTH CHART DATA FOR ANALYSIS:\n${chartSummary}\n\nUse this complete planetary information for accurate astrological guidance.`;
+    }
+    
     const geminiHistory = userSession.conversation.slice(-50).map(turn => ({
       role: turn.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: turn.content }],
@@ -274,7 +430,7 @@ export const connectDeepSeek = async (req, res) => {
 
     const chat = model.startChat({
       history: geminiHistory,
-      systemInstruction: { role: "system", parts: [{ text: systemPrompt }] },
+      systemInstruction: { role: "system", parts: [{ text: enhancedSystemPrompt }] },
       safetySettings: [
         { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
         { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
