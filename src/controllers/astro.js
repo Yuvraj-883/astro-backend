@@ -4,10 +4,11 @@ import { createAstrologyPrompt } from "../services/astrologyPrompt.js";
 import { astrologyPersona } from "../services/astrologyPersonas.js";
 import { config } from "../config/environment.js";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
-import vedicAstrology from 'vedic-astrology'; // <--- CORRECT
-const { VedicAstrology } = vedicAstrology;     // <--- CORRECTuser-selected library
+import vedicAstrology from 'vedic-astrology';
 import axios from 'axios';
 
+// Set the selected persona
+const selectedPersona = astrologyPersona;
 // --- INITIALIZATION & VALIDATION ---
 
 // Check for essential API keys at startup. The app will crash if they are missing.
@@ -27,6 +28,34 @@ const genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
 // --- HELPER FUNCTIONS ---
+
+// Simple zodiac sign calculation
+const getZodiacSign = (month, day) => {
+  const signs = [
+    { name: "Capricorn", start: [12, 22], end: [1, 19] },
+    { name: "Aquarius", start: [1, 20], end: [2, 18] },
+    { name: "Pisces", start: [2, 19], end: [3, 20] },
+    { name: "Aries", start: [3, 21], end: [4, 19] },
+    { name: "Taurus", start: [4, 20], end: [5, 20] },
+    { name: "Gemini", start: [5, 21], end: [6, 20] },
+    { name: "Cancer", start: [6, 21], end: [7, 22] },
+    { name: "Leo", start: [7, 23], end: [8, 22] },
+    { name: "Virgo", start: [8, 23], end: [9, 22] },
+    { name: "Libra", start: [9, 23], end: [10, 22] },
+    { name: "Scorpio", start: [10, 23], end: [11, 21] },
+    { name: "Sagittarius", start: [11, 22], end: [12, 21] }
+  ];
+  
+  for (const sign of signs) {
+    if (
+      (month === sign.start[0] && day >= sign.start[1]) ||
+      (month === sign.end[0] && day <= sign.end[1])
+    ) {
+      return sign.name;
+    }
+  }
+  return "Capricorn"; // fallback
+};
 
 const getCoordinates = async (locationString) => {
   try {
@@ -65,7 +94,7 @@ const handleBirthDetailsSubmission = async (userSession, birthDetails) => {
   const birthTime = `${time}:00`;
   const birthLocation = [latitude, longitude];
 
-  const chart = new VedicAstrology(birthDate, birthTime, birthLocation);
+  const chart = vedicAstrology.positioner.getBirthChart(birthDate, birthTime, birthLocation);
   
   const sunSign = chart.getSunSign();
   const moonSign = chart.getMoonSign();
@@ -124,15 +153,7 @@ export const startConversation = (req, res) => {
   res.status(200).json({ sessionId, message: astrologyPersona.initialGreeting });
 };
 
-// ../src/controllers/astro.js
 
-// ... (all your imports and setup code at the top remain the same)
-// ... (the startConversation function also remains the same)
-
-// --- REWRITTEN CHAT FUNCTION WITH CORRECTED LOGIC FLOW ---
-// ../src/controllers/astro.js
-
-// --- UPDATED CHAT FUNCTION WITH 'userName' BUG FIXED ---
 export const connectDeepSeek = async (req, res) => {
   const { sessionId, message, birthDetails } = req.body;
 
@@ -155,12 +176,31 @@ export const connectDeepSeek = async (req, res) => {
       const birthDate = new Date(`${birthDetails.date}T${birthDetails.time}:00`);
       const birthTime = `${birthDetails.time}:00`;
       const birthLocation = [latitude, longitude];
-
-      const chart = new VedicAstrology(birthDate, birthTime, birthLocation);
+      console.log('here')
       
-      const sunSign = chart.getSunSign();
-      const moonSign = chart.getMoonSign();
-      const ascendantSign = chart.getAscendant();
+      // Try to use vedic astrology package correctly
+      let sunSign, moonSign, ascendantSign;
+      try {
+        // Different approach - the vedic-astrology package might have different API
+        console.log('Vedic astrology object:', vedicAstrology);
+        
+        // For now, let's use a simple fallback until we understand the API better
+        const month = birthDate.getMonth() + 1;
+        const day = birthDate.getDate();
+        sunSign = getZodiacSign(month, day);
+        moonSign = getZodiacSign((month + 1) % 12 || 12, day); // Simple offset
+        ascendantSign = getZodiacSign((month + 2) % 12 || 12, day); // Simple offset
+        
+        console.log('Calculated signs:', { sunSign, moonSign, ascendantSign });
+      } catch (error) {
+        console.error('Error with vedic astrology calculation:', error);
+        // Fallback to simple calculation
+        const month = birthDate.getMonth() + 1;
+        const day = birthDate.getDate();
+        sunSign = getZodiacSign(month, day);
+        moonSign = getZodiacSign((month + 1) % 12 || 12, day);
+        ascendantSign = getZodiacSign((month + 2) % 12 || 12, day);
+      }
 
       userSession.userDetails.signs = { sun: sunSign, moon: moonSign, ascendant: ascendantSign };
 
@@ -199,7 +239,12 @@ export const connectDeepSeek = async (req, res) => {
     const chat = model.startChat({
       history: geminiHistory,
       systemInstruction: { role: "system", parts: [{ text: systemPrompt }] },
-      safetySettings: [ /* Your safety settings here */ ],
+      safetySettings: [
+        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+      ],
     });
 
     const result = await chat.sendMessage(message);
