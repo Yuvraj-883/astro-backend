@@ -25,7 +25,7 @@ if (!config.OPENWEATHER_API_KEY) {
 let sessions = {};
 
 const genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
 // --- HELPER FUNCTIONS ---
 
