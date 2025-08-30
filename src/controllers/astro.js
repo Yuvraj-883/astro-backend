@@ -25,7 +25,7 @@ if (!config.OPENWEATHER_API_KEY) {
 let sessions = {};
 
 const genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
 // --- HELPER FUNCTIONS ---
 
@@ -95,7 +95,7 @@ const handleBirthDetailsSubmission = async (userSession, birthDetails) => {
   const birthLocation = [latitude, longitude];
 
   const chart = vedicAstrology.positioner.getBirthChart(birthDate, birthTime, birthLocation);
-  
+  console.log("Calculated chart",chart)
   const sunSign = chart.getSunSign();
   const moonSign = chart.getMoonSign();
   const ascendantSign = chart.getAscendant();
@@ -173,33 +173,69 @@ export const connectDeepSeek = async (req, res) => {
       console.log("Received birth details:", birthDetails);
       const { latitude, longitude } = await getCoordinates(birthDetails.location);
 
-      const birthDate = new Date(`${birthDetails.date}T${birthDetails.time}:00`);
-      const birthTime = `${birthDetails.time}:00`;
-      const birthLocation = [latitude, longitude];
-      console.log('here')
+      // Keep the original date string format for vedic astrology
+      const birthDate = birthDetails.date; // Keep as string like "1990-08-15"
+      const birthTime = `${birthDetails.time}:00`; // Convert "14:30" to "14:30:00" 
+      // Convert coordinates to proper number format that vedic astrology expects
+      const birthLocation = [parseFloat(latitude), parseFloat(longitude)];
+      console.log('Birth parameters:', { birthDate, birthTime, birthLocation });
       
       // Try to use vedic astrology package correctly
       let sunSign, moonSign, ascendantSign;
       try {
-        // Different approach - the vedic-astrology package might have different API
         console.log('Vedic astrology object:', vedicAstrology);
         
-        // For now, let's use a simple fallback until we understand the API better
-        const month = birthDate.getMonth() + 1;
-        const day = birthDate.getDate();
-        sunSign = getZodiacSign(month, day);
-        moonSign = getZodiacSign((month + 1) % 12 || 12, day); // Simple offset
-        ascendantSign = getZodiacSign((month + 2) % 12 || 12, day); // Simple offset
+        // Use the proper vedic astrology API
+        const chart = vedicAstrology.positioner.getBirthChart(birthDate, birthTime, birthLocation);
+        console.log('Vedic astrology chart:', chart);
         
-        console.log('Calculated signs:', { sunSign, moonSign, ascendantSign });
+        // Check what methods are available on the chart object
+        if (chart && typeof chart === 'object') {
+          console.log('Chart methods:', Object.getOwnPropertyNames(chart));
+          console.log('Chart prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(chart)));
+          
+          // Try different ways to get the signs
+          if (typeof chart.getSunSign === 'function') {
+            sunSign = chart.getSunSign();
+          }
+          if (typeof chart.getMoonSign === 'function') {
+            moonSign = chart.getMoonSign();
+          }
+          if (typeof chart.getAscendant === 'function') {
+            ascendantSign = chart.getAscendant();
+          }
+          
+          // If the above don't work, try accessing properties directly
+          if (!sunSign && chart.sun) sunSign = chart.sun.sign || chart.sun;
+          if (!moonSign && chart.moon) moonSign = chart.moon.sign || chart.moon;
+          if (!ascendantSign && chart.ascendant) ascendantSign = chart.ascendant.sign || chart.ascendant;
+          
+          console.log('Extracted signs from vedic chart:', { sunSign, moonSign, ascendantSign });
+        }
+        
+        // If we still don't have all signs, use fallback calculation
+        if (!sunSign || !moonSign || !ascendantSign) {
+          console.log('Some signs missing, using fallback calculation');
+          const dateObj = new Date(`${birthDetails.date}T${birthDetails.time}:00`);
+          const month = dateObj.getMonth() + 1;
+          const day = dateObj.getDate();
+          
+          if (!sunSign) sunSign = getZodiacSign(month, day);
+          if (!moonSign) moonSign = getZodiacSign((month + 1) % 12 || 12, day);
+          if (!ascendantSign) ascendantSign = getZodiacSign((month + 2) % 12 || 12, day);
+        }
+        
+        console.log('Final calculated signs:', { sunSign, moonSign, ascendantSign });
       } catch (error) {
         console.error('Error with vedic astrology calculation:', error);
         // Fallback to simple calculation
-        const month = birthDate.getMonth() + 1;
-        const day = birthDate.getDate();
+        const dateObj = new Date(`${birthDetails.date}T${birthDetails.time}:00`);
+        const month = dateObj.getMonth() + 1;
+        const day = dateObj.getDate();
         sunSign = getZodiacSign(month, day);
         moonSign = getZodiacSign((month + 1) % 12 || 12, day);
         ascendantSign = getZodiacSign((month + 2) % 12 || 12, day);
+        console.log('Fallback calculated signs:', { sunSign, moonSign, ascendantSign });
       }
 
       userSession.userDetails.signs = { sun: sunSign, moon: moonSign, ascendant: ascendantSign };
