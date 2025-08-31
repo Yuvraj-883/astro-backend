@@ -8,8 +8,9 @@
 import { 
   getCurrentPlanetaryPositions, 
   getPanchang, 
-  getCurrentNakshatra 
+  getDayOfYear
 } from './vedicCalculations.js';
+import { vedicSigns, getSignNumber } from './dailyHoroscope.js';
 
 /**
  * Generate personalized horoscope based on birth data
@@ -414,15 +415,4 @@ function calculateGeneralPlanetInfluence(planet, planetData, signNumber) {
   if (distance <= 1 || distance >= 11) return 2; // Same or adjacent signs
   if (distance <= 4 || distance >= 8) return 1;  // Trine or sextile-like
   return 0; // Neutral
-}
-
-function getSignNumber(sign) {
-  const signs = ['mesh', 'vrishabh', 'mithun', 'kark', 'simha', 'kanya', 'tula', 'vrishchik', 'dhanu', 'makar', 'kumbh', 'meen'];
-  return signs.indexOf(sign.toLowerCase()) + 1;
-}
-
-function getDayOfYear(date) {
-  const start = new Date(date.getFullYear(), 0, 0);
-  const diff = date - start;
-  return Math.floor(diff / (1000 * 60 * 60 * 24));
 }

@@ -780,7 +780,7 @@ function getWarning(raashi, date) {
 /**
  * Utility functions
  */
-function getSignNumber(raashi) {
+export function getSignNumber(raashi) {
   const signs = Object.keys(vedicSigns);
   return signs.indexOf(raashi.toLowerCase()) + 1;
 }

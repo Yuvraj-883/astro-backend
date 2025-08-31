@@ -303,7 +303,7 @@ function getMoonrise(date) {
 /**
  * Get day of year
  */
-function getDayOfYear(date) {
+export function getDayOfYear(date) {
   const start = new Date(date.getFullYear(), 0, 0);
   const diff = date - start;
   const oneDay = 1000 * 60 * 60 * 24;
@@ -546,34 +546,7 @@ function getNakshatraFromDegree(longitude) {
   return nakshatras[nakshatraIndex % 27].name;
 }
 
-/**
- * Get zodiac sign from day of year
- */
-function getSignFromDayOfYear(day) {
-  const signs = ["मकर", "कुम्भ", "मीन", "मेष", "वृषभ", "मिथुन", "कर्क", "सिंह", "कन्या", "तुला", "वृश्चिक", "धनु"];
-  return signs[Math.floor((day * 12) / 365) % 12];
-}
 
-/**
- * Check if planet is retrograde (simplified)
- */
-function isRetrograde(planet, date) {
-  const dayOfYear = getDayOfYear(date);
-  
-  // Simplified retrograde periods
-  const retrogradePatterns = {
-    budh: [80, 120, 200, 300], // Mercury retrograde periods
-    shukra: [150], // Venus retrograde periods
-    guru: [100], // Jupiter retrograde periods
-    shani: [180] // Saturn retrograde periods
-  };
-  
-  if (!retrogradePatterns[planet]) return false;
-  
-  return retrogradePatterns[planet].some(period => 
-    Math.abs(dayOfYear - period) < 20
-  );
-}
 
 /**
  * Get auspicious muhurat for the day
