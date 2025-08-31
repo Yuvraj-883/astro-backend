@@ -162,20 +162,23 @@ const PersonaReviewSchema = new mongoose.Schema({
   collection: 'persona_reviews'
 });
 
-// Indexes for better query performance
-PersonaReviewSchema.index({ personaSlug: 1, rating: -1 });
-PersonaReviewSchema.index({ persona: 1, createdAt: -1 });
-PersonaReviewSchema.index({ isApproved: 1, rating: -1 });
-PersonaReviewSchema.index({ isFeatured: 1, createdAt: -1 });
-PersonaReviewSchema.index({ helpfulVotes: -1 });
-
-// Compound index for filtering
+// Optimized indexes for better query performance
+// Compound index covers most query patterns
 PersonaReviewSchema.index({ 
   personaSlug: 1, 
   isApproved: 1, 
   rating: -1, 
   createdAt: -1 
 });
+
+// Additional specific indexes for unique query patterns
+PersonaReviewSchema.index({ persona: 1, createdAt: -1 }); // For ObjectId-based persona queries
+PersonaReviewSchema.index({ isFeatured: 1, createdAt: -1 }); // For featured reviews
+PersonaReviewSchema.index({ helpfulVotes: -1 }); // For sorting by helpfulness
+
+// Note: Removed redundant indexes:
+// - { personaSlug: 1, rating: -1 } - covered by compound index
+// - { isApproved: 1, rating: -1 } - covered by compound index
 
 // Virtual for review summary
 PersonaReviewSchema.virtual('summary').get(function() {
