@@ -80,7 +80,7 @@ const convertVedicSignToFullName = (abbreviation) => {
 const generateChartSummary = (completeChart) => {
   if (!completeChart) return "Birth chart data not available.";
   
-  let summary = "COMPLETE BIRTH CHART ANALYSIS:\n\n";
+  let summary = "FORMATTED BIRTH CHART ANALYSIS:\n\n";
   
   // Basic Signs
   summary += `🌟 BASIC SIGNS:\n`;
@@ -88,11 +88,13 @@ const generateChartSummary = (completeChart) => {
   summary += `• Moon Sign (Chandra Rashi): ${completeChart.basicSigns.moonSign}\n`;
   summary += `• Ascendant (Lagna): ${completeChart.basicSigns.ascendantSign}\n\n`;
   
-  // All Planetary Positions
-  summary += `🪐 PLANETARY POSITIONS:\n`;
+  // All Planetary Positions with detailed info
+  summary += `🪐 DETAILED PLANETARY POSITIONS:\n`;
   Object.entries(completeChart.planets).forEach(([code, planet]) => {
-    const retrograde = planet.isRetrograde ? " (R)" : "";
-    summary += `• ${planet.name}: ${planet.sign}${retrograde} - ${planet.nakshatra} nakshatra\n`;
+    const retrograde = planet.isRetrograde ? " (Retrograde)" : "";
+    summary += `• ${planet.name}: ${planet.sign}${retrograde}\n`;
+    summary += `  - Longitude: ${planet.longitude}°\n`;
+    summary += `  - Nakshatra: ${planet.nakshatra} (Pada ${planet.nakshatraPada})\n`;
   });
   
   // House-wise Distribution
@@ -101,7 +103,7 @@ const generateChartSummary = (completeChart) => {
     if (houseData.planets.length > 0) {
       const planetList = houseData.planets.map(p => 
         `${p.name}${p.isRetrograde ? '(R)' : ''}`).join(', ');
-      summary += `• ${houseData.sign} (House ${houseData.houseNumber}): ${planetList}\n`;
+      summary += `• House ${houseData.houseNumber} (${houseData.sign}): ${planetList}\n`;
     }
   });
   
@@ -260,8 +262,9 @@ export const connectDeepSeek = async (req, res) => {
             birthLocation[1], // longitude  
             timezone
           );
-          console.log('Vedic astrology succeeded with timezone!');
-          console.log('Vedic astrology chart:', chart);
+          console.log('\n=== RAW VEDIC ASTROLOGY DATA ===');
+          console.log(JSON.stringify(chart, null, 2));
+          console.log('=== END RAW DATA ===\n');
         } catch (vedicError) {
           console.log('Vedic astrology still failed:', vedicError.message);
           throw vedicError;
@@ -269,10 +272,6 @@ export const connectDeepSeek = async (req, res) => {
         
         // Extract complete birth chart details
         if (chart && typeof chart === 'object') {
-          console.log('Chart structure:', Object.keys(chart));
-          if (chart.meta) {
-            console.log('Chart meta:', Object.keys(chart.meta));
-          }
           
           // Extract basic signs
           if (chart.meta && chart.meta.Su && chart.meta.Su.rashi) {
@@ -349,14 +348,11 @@ export const connectDeepSeek = async (req, res) => {
             }
           });
           
-          // Store complete chart data in session for AI agent access
+          // Store both processed and raw chart data for AI agent access
           userSession.userDetails.completeChart = completeChartData;
+          userSession.userDetails.rawVedicChart = chart; // Store complete raw data
           
-          console.log('Complete chart data stored for AI agent:', {
-            planetsCount: Object.keys(completeChartData.planets).length,
-            housesWithPlanets: Object.keys(completeChartData.houses).filter(h => 
-              completeChartData.houses[h].planets.length > 0).length
-          });
+          console.log('✓ Complete chart data stored for AI analysis');
           
           console.log('Extracted signs from vedic chart:', { sunSign, moonSign, ascendantSign });
         }
@@ -418,7 +414,23 @@ export const connectDeepSeek = async (req, res) => {
     
     // Add complete birth chart data to conversation context if available
     let enhancedSystemPrompt = systemPrompt;
-    if (userSession.userDetails.completeChart) {
+    if (userSession.userDetails.completeChart && userSession.userDetails.rawVedicChart) {
+      const chartSummary = generateChartSummary(userSession.userDetails.completeChart);
+      const rawChartData = JSON.stringify(userSession.userDetails.rawVedicChart, null, 2);
+      
+      enhancedSystemPrompt += `
+
+COMPLETE BIRTH CHART DATA FOR MAXIMUM ACCURACY:
+
+${chartSummary}
+
+RAW VEDIC ASTROLOGY DATA (Use this for precise calculations):
+${rawChartData}
+
+IMPORTANT: Use both the formatted summary above AND the raw data for the most accurate astrological analysis. The raw data contains exact planetary longitudes, nakshatras, and house positions for precise predictions.`;
+      
+      console.log('✓ Enhanced system prompt with complete chart data (', chartSummary.length + rawChartData.length, 'characters)');
+    } else if (userSession.userDetails.completeChart) {
       const chartSummary = generateChartSummary(userSession.userDetails.completeChart);
       enhancedSystemPrompt += `\n\nDETAILED BIRTH CHART DATA FOR ANALYSIS:\n${chartSummary}\n\nUse this complete planetary information for accurate astrological guidance.`;
     }
