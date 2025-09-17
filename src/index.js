@@ -22,6 +22,7 @@ app.use(cors({
   origin: '*',
   credentials: true,
 }));
+await connectDB();
 
 // Logging middleware
 app.use(morgan('combined'));
@@ -48,7 +49,6 @@ app.use(errorHandler);
 const startServer = async () => {
   try {
     // Connect to MongoDB first
-    await connectDB();
     
     const port = config.PORT;
     
