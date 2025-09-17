@@ -12,7 +12,6 @@ let isConnected = false;
 
 const connectDB = async () => {
   // Prevent multiple connections
-  console.log("Connecting to database...");
   if (isConnected) {
     console.log('📊 Already connected to MongoDB');
     return;
