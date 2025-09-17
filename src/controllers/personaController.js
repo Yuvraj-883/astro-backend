@@ -3,7 +3,6 @@
 import Persona from '../models/Persona.js';
 import { generateDailyHoroscope } from '../services/dailyHoroscope.js';
 import { getPanchang } from '../services/vedicCalculations.js';
-import { ensureConnection } from '../config/database.js';
 
 /**
  * Controller for managing astrology personas
@@ -13,9 +12,6 @@ import { ensureConnection } from '../config/database.js';
 // Get all active personas
 export const getAllPersonas = async (req, res) => {
   try {
-    // Ensure database connection
-    await ensureConnection();
-    
     const { category, popular } = req.query;
     let query = { isActive: true };
     
@@ -50,9 +46,6 @@ export const getAllPersonas = async (req, res) => {
 // Get persona by slug
 export const getPersonaBySlug = async (req, res) => {
   try {
-    // Ensure database connection
-    await ensureConnection();
-    
     const { slug } = req.params;
     
     const persona = await Persona.findOne({ 
@@ -84,9 +77,6 @@ export const getPersonaBySlug = async (req, res) => {
 // Get default persona
 export const getDefaultPersona = async (req, res) => {
   try {
-    // Ensure database connection
-    await ensureConnection();
-    
     const persona = await Persona.getDefault();
     
     if (!persona) {

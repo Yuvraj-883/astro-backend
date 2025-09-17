@@ -26,8 +26,7 @@
     "test:reviews": "node src/scripts/testReviewSystem.js",
     "test:horoscope": "node src/scripts/testHoroscope.js",
     "test:enhanced": "echo 'Enhanced horoscope system ready! Check /api/v1/enhanced/ for endpoints'",
-    "db:connect": "node -e \"import('./src/config/database.js').then(db => db.connectDB())\"",
-    "db:test": "node scripts/test-db-connection.js"
+    "db:connect": "node -e \"import('./src/config/database.js').then(db => db.connectDB())\""
   },
   "keywords": [
     "nodejs",

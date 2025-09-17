@@ -3,7 +3,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
 import { config } from './config/environment.js';
-import { connectDB, dbHealthMiddleware, getConnectionStatus } from './config/database.js';
+import { connectDB } from './config/database.js';
 import { specs, swaggerUi, swaggerOptions } from './docs/swagger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFoundHandler } from './middleware/notFoundHandler.js';
@@ -33,25 +33,13 @@ app.use(express.urlencoded({ extended: true }));
 // API Documentation
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(specs, swaggerOptions));
 
-// Database status endpoint
-app.get(`${config.API_PREFIX}/db/status`, (req, res) => {
-  const status = getConnectionStatus();
-  res.json({
-    success: true,
-    database: status,
-    timestamp: new Date().toISOString()
-  });
-});
-
 // API routes
 app.use(`${config.API_PREFIX}/health`, healthRouter);
 app.use(`${config.API_PREFIX}/astro`, astroRouter);
-
-// Apply database health middleware to database-dependent routes
-app.use(`${config.API_PREFIX}/personas`, dbHealthMiddleware, personaRoutes);
-app.use(`${config.API_PREFIX}/reviews`, dbHealthMiddleware, reviewRoutes);
+app.use(`${config.API_PREFIX}/personas`, personaRoutes);
+app.use(`${config.API_PREFIX}/reviews`, reviewRoutes);
 app.use(`${config.API_PREFIX}/horoscope`, horoscopeRoutes);
-app.use(`${config.API_PREFIX}/enhanced`, dbHealthMiddleware, enhancedHoroscopeRoutes);
+app.use(`${config.API_PREFIX}/enhanced`, enhancedHoroscopeRoutes);
 
 // Error handling middleware
 app.use(notFoundHandler);
