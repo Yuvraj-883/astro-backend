@@ -3,8 +3,8 @@
 import express from 'express';
 const router = express.Router();
 
-// Import both controller functions
-import { connectDeepSeek, startConversation } from '../controllers/astro.js';
+// Import controller functions
+import { connectDeepSeek, startConversation, getSessionStatus } from '../controllers/astro.js';
 
 /**
  * @swagger
@@ -158,5 +158,28 @@ router.get('/start', startConversation);
  *                   example: "An error occurred while processing your request"
  */
 router.post('/chat', connectDeepSeek);
+
+/**
+ * @swagger
+ * /api/v1/astro/session/{sessionId}:
+ *   get:
+ *     summary: Check session status (Debug endpoint)
+ *     description: Debug endpoint to check if a session exists and its details
+ *     tags:
+ *       - Debug
+ *     parameters:
+ *       - in: path
+ *         name: sessionId
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Session ID to check (optional)
+ *     responses:
+ *       200:
+ *         description: Session status information
+ *       404:
+ *         description: Session not found
+ */
+router.get('/session/:sessionId?', getSessionStatus);
 
 export { router as astroRouter };

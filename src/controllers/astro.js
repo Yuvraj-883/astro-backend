@@ -19,10 +19,30 @@ if (!config.OPENWEATHER_API_KEY) {
   throw new Error("FATAL ERROR: OPENWEATHER_API_KEY is not defined in environment variables.");
 }
 
-// In-memory session storage.
-// NOTE: For a production application that needs to scale or persist data
-// across server restarts, this should be replaced with a database like Redis or a persistent DB.
+// In-memory session storage with cleanup
+// NOTE: For production, use Redis or persistent DB
 let sessions = {};
+
+// Clean up old sessions every 30 minutes
+setInterval(() => {
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - 2 * 60 * 60 * 1000); // 2 hours ago
+  
+  let cleanedCount = 0;
+  Object.keys(sessions).forEach(sessionId => {
+    const session = sessions[sessionId];
+    const lastActivity = new Date(session.lastActivity || session.createdAt);
+    
+    if (lastActivity < cutoff) {
+      delete sessions[sessionId];
+      cleanedCount++;
+    }
+  });
+  
+  if (cleanedCount > 0) {
+    console.log(`🧹 Cleaned up ${cleanedCount} old sessions. Active sessions: ${Object.keys(sessions).length}`);
+  }
+}, 30 * 60 * 1000); // Run every 30 minutes
 
 const genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
@@ -220,12 +240,25 @@ const handleGeneralChat = async (userSession, message) => {
 
 export const startConversation = (req, res) => {
   const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
+  // Ensure unique session ID
+  let attempts = 0;
+  while (sessions[sessionId] && attempts < 10) {
+    sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    attempts++;
+  }
+  
   sessions[sessionId] = {
     sessionId,
     conversation: [],
     userDetails: { name: null, birthDetails: null, signs: null },
+    createdAt: new Date().toISOString(),
+    lastActivity: new Date().toISOString()
   };
-  console.log(`New session created: ${sessionId}`);
+  
+  console.log(`✓ New session created: ${sessionId}`);
+  console.log(`✓ Total active sessions: ${Object.keys(sessions).length}`);
+  
   res.status(200).json({ sessionId, message: astrologyPersona.initialGreeting });
 };
 
@@ -233,9 +266,22 @@ export const startConversation = (req, res) => {
 export const connectDeepSeek = async (req, res) => {
   const { sessionId, message, birthDetails } = req.body;
 
-  if (!sessionId || !sessions[sessionId]) {
-    return res.status(400).json({ message: "Invalid or missing session ID. Please start a new conversation." });
+  // Enhanced session validation with debugging
+  if (!sessionId) {
+    console.log('❌ No session ID provided');
+    return res.status(400).json({ message: "No session ID provided. Please start a new conversation." });
   }
+  
+  if (!sessions[sessionId]) {
+    console.log(`❌ Session not found: ${sessionId}`);
+    console.log(`❌ Available sessions: ${Object.keys(sessions).join(', ')}`);
+    console.log(`❌ Total sessions: ${Object.keys(sessions).length}`);
+    return res.status(400).json({ message: "Session expired or invalid. Please start a new conversation." });
+  }
+  
+  // Update last activity
+  sessions[sessionId].lastActivity = new Date().toISOString();
+  console.log(`✓ Session ${sessionId} is valid and active`);
 
   const userSession = sessions[sessionId];
   userSession.conversation.push({ role: "user", content: message });
@@ -526,6 +572,14 @@ ${chartSummary}
 RAW VEDIC ASTROLOGY DATA (Use this for precise calculations):
 ${rawChartData}
 
+CRITICAL CONSISTENCY REQUIREMENTS:
+1. ALWAYS reference the EXACT same planetary positions from the chart data above
+2. For the SAME question about the SAME chart, give the SAME core analysis
+3. Base ALL predictions on the specific data provided - never improvise or guess
+4. Use EXACT house numbers and planetary positions as shown in the data
+5. Be CONSISTENT - if you said Sun is in House 9 before, always say House 9
+6. NEVER contradict previous readings for the same chart
+
 IMPORTANT: Use both the formatted summary above AND the raw data for the most accurate astrological analysis. The raw data contains exact planetary longitudes, nakshatras, and house positions for precise predictions.`;
       
       console.log('✓ Enhanced system prompt with complete chart data (', chartSummary.length + rawChartData.length, 'characters)');
@@ -563,13 +617,29 @@ IMPORTANT: Use both the formatted summary above AND the raw data for the most ac
         { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
         { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
       ],
+      generationConfig: {
+        temperature: 0.1, // Low temperature for more consistent responses
+        topP: 0.8,
+        topK: 40,
+        maxOutputTokens: 1024,
+      },
     });
 
+    // Add chart data hash to ensure consistency
+    const chartHash = userSession.userDetails.completeChart ? 
+      JSON.stringify(userSession.userDetails.completeChart).substring(0, 100) : 'no-chart';
+    
+    console.log(`[${sessionId}] Chart data hash: ${chartHash.substring(0, 50)}...`);
+    console.log(`[${sessionId}] Question: ${message.substring(0, 100)}...`);
+    
     const result = await chat.sendMessage(message);
     const aiResponse = result.response.text();
     
+    console.log(`[${sessionId}] Response: ${aiResponse.substring(0, 100)}...`);
+    
     userSession.conversation.push({ role: "assistant", content: aiResponse });
     console.log(`[${sessionId}] Conversation length:`, userSession.conversation.length);
+    console.log(`[${sessionId}] Session still exists:`, !!sessions[sessionId]);
     
     res.status(200).json({ message: aiResponse });
 
@@ -577,4 +647,38 @@ IMPORTANT: Use both the formatted summary above AND the raw data for the most ac
     console.error(`[${sessionId}] Error calling Gemini API:`, err);
     res.status(500).json({ message: "Internal Server Error" });
   }
+};
+
+// Debug endpoint to check session status
+export const getSessionStatus = (req, res) => {
+  const { sessionId } = req.params;
+  
+  if (!sessionId) {
+    return res.status(200).json({
+      totalSessions: Object.keys(sessions).length,
+      activeSessions: Object.keys(sessions),
+      message: "No specific session requested"
+    });
+  }
+  
+  const session = sessions[sessionId];
+  if (!session) {
+    return res.status(404).json({
+      error: "Session not found",
+      sessionId,
+      totalSessions: Object.keys(sessions).length,
+      activeSessions: Object.keys(sessions)
+    });
+  }
+  
+  res.status(200).json({
+    sessionId,
+    exists: true,
+    createdAt: session.createdAt,
+    lastActivity: session.lastActivity,
+    hasUserDetails: !!session.userDetails.name,
+    hasChart: !!session.userDetails.signs,
+    conversationLength: session.conversation.length,
+    totalSessions: Object.keys(sessions).length
+  });
 };
