@@ -115,6 +115,28 @@ const getSunSignFromMonth = (month) => {
   return monthToSign[month] || 'Unknown';
 };
 
+// Helper function to generate compact conversation history
+const generateCompactHistory = (conversation) => {
+  if (!conversation || conversation.length === 0) {
+    return "No previous conversation.";
+  }
+  
+  // Keep last 10 exchanges for context
+  const recentConversation = conversation.slice(-20);
+  
+  const summary = recentConversation
+    .map((turn, index) => {
+      const role = turn.role === 'assistant' ? 'You' : 'User';
+      const content = turn.content.length > 100 
+        ? turn.content.substring(0, 100) + '...' 
+        : turn.content;
+      return `${role}: ${content}`;
+    })
+    .join('\n');
+  
+  return `Recent conversation (last ${recentConversation.length} messages):\n${summary}`;
+};
+
 // Generate detailed birth chart summary for AI agent
 const generateChartSummary = (completeChart) => {
   if (!completeChart) return "Birth chart data not available.";
@@ -557,6 +579,9 @@ export const connectDeepSeek = async (req, res) => {
   try {
     const systemPrompt = createAstrologyPrompt(selectedPersona, userSession.userDetails);
     
+    // Generate compact conversation history
+    const compactHistory = generateCompactHistory(userSession.conversation);
+    
     // Add complete birth chart data to conversation context if available
     let enhancedSystemPrompt = systemPrompt;
     if (userSession.userDetails.completeChart && userSession.userDetails.rawVedicChart) {
@@ -580,7 +605,10 @@ CRITICAL CONSISTENCY REQUIREMENTS:
 5. Be CONSISTENT - if you said Sun is in House 9 before, always say House 9
 6. NEVER contradict previous readings for the same chart
 
-IMPORTANT: Use both the formatted summary above AND the raw data for the most accurate astrological analysis. The raw data contains exact planetary longitudes, nakshatras, and house positions for precise predictions.`;
+IMPORTANT: Use both the formatted summary above AND the raw data for the most accurate astrological analysis. The raw data contains exact planetary longitudes, nakshatras, and house positions for precise predictions.
+
+CONVERSATION CONTEXT:
+${compactHistory}`;
       
       console.log('✓ Enhanced system prompt with complete chart data (', chartSummary.length + rawChartData.length, 'characters)');
       
@@ -600,7 +628,9 @@ IMPORTANT: Use both the formatted summary above AND the raw data for the most ac
       console.log('=== END VERIFICATION ===\n');
     } else if (userSession.userDetails.completeChart) {
       const chartSummary = generateChartSummary(userSession.userDetails.completeChart);
-      enhancedSystemPrompt += `\n\nDETAILED BIRTH CHART DATA FOR ANALYSIS:\n${chartSummary}\n\nUse this complete planetary information for accurate astrological guidance.`;
+      enhancedSystemPrompt += `\n\nDETAILED BIRTH CHART DATA FOR ANALYSIS:\n${chartSummary}\n\nUse this complete planetary information for accurate astrological guidance.\n\nCONVERSATION CONTEXT:\n${compactHistory}`;
+    } else {
+      enhancedSystemPrompt += `\n\nCONVERSATION CONTEXT:\n${compactHistory}`;
     }
     
     const geminiHistory = userSession.conversation.slice(-50).map(turn => ({
@@ -679,6 +709,7 @@ export const getSessionStatus = (req, res) => {
     hasUserDetails: !!session.userDetails.name,
     hasChart: !!session.userDetails.signs,
     conversationLength: session.conversation.length,
-    totalSessions: Object.keys(sessions).length
+    totalSessions: Object.keys(sessions).length,
+    compactHistory: session ? generateCompactHistory(session.conversation) : null
   });
 };
